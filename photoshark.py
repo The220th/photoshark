@@ -87,9 +87,70 @@ def recv_msg(conn) -> bytes:
     return res
 
 
+SCREEN_CIPHER = None
+
+class AES256CBC_Cipher(object):
+	# https://stackoverflow.com/questions/12524994/encrypt-decrypt-using-pycrypto-aes-256
+
+    def __init__(self, key):
+        import base64
+        import hashlib
+        from Crypto import Random
+        from Crypto.Cipher import AES
+        self.bs = AES.block_size
+        self.key = hashlib.sha256(key.encode()).digest()
+
+    def encrypt(self, raw: bytes) -> bytes:
+        import base64
+        import hashlib
+        from Crypto import Random
+        from Crypto.Cipher import AES
+        raw = base64.b64encode(raw)
+        raw = str(raw, "ascii")
+        raw = self._pad(raw)
+        iv = Random.new().read(AES.block_size)
+        cipher = AES.new(self.key, AES.MODE_CBC, iv)
+        return base64.b64encode(iv + cipher.encrypt(raw.encode()))
+
+    def decrypt(self, enc: bytes) -> bytes:
+        import base64
+        import hashlib
+        from Crypto import Random
+        from Crypto.Cipher import AES
+        enc = base64.b64decode(enc)
+        iv = enc[:AES.block_size]
+        cipher = AES.new(self.key, AES.MODE_CBC, iv)
+        return self._unpad(cipher.decrypt(enc[AES.block_size:]))
+
+    def _pad(self, s):
+        return s + (self.bs - len(s) % self.bs) * chr(self.bs - len(s) % self.bs)
+
+    @staticmethod
+    def _unpad(s):
+        return s[:-ord(s[len(s)-1:])]
+
+def form_screen_bytes(bs: bytes) -> bytes:
+    if(SCREEN_CIPHER == None):
+        return bs
+    else:
+        plog(f"form_screen_bytes: encrypting screen")
+        return SCREEN_CIPHER.encrypt(bs)
+
+def deform_screen_bytes(bs: bytes) -> bytes:
+    if(SCREEN_CIPHER == None):
+        return bs
+    else:
+        plog(f"deform_screen_bytes: decrypting screen")
+        import base64
+        res = SCREEN_CIPHER.decrypt(bs)
+        res = base64.b64decode(res)
+        return res
+
 # port
 #  0
 def main_server(argv: list):
+    if(len(argv) != 1):
+        perr("Sytax error! Expected: \"> python photoshark.py server {port}\". ")
     try:
         port = int(argv[0])
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -170,9 +231,14 @@ def main_server(argv: list):
         main_server(argv)
 
 
-# ip port
-# 0   1
+# ip port [cipher_key]
+# 0   1         2
 def main_photo(argv: list):
+    if(len(argv) < 2 or len(argv) > 3):
+        perr("Sytax error! Expected: \"> python photoshark.py photo {ip} {port} [{cipher_key}]\". ")
+    if(len(argv) == 3):
+        global SCREEN_CIPHER
+        SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
     try:
         plog("photo starting")
         ip = argv[0]
@@ -198,6 +264,7 @@ def main_photo(argv: list):
                     raise "bullshit happened"
             if(bs_str == "take_photo"):
                 bs = image_to_bytes(pyautogui.screenshot())
+                bs = form_screen_bytes(bs)
                 send_msg(sock, bs)
             #time.sleep(1)
     except Exception as eerrrrr:
@@ -207,9 +274,14 @@ def main_photo(argv: list):
         main_photo(argv)
 
 
-# ip port
-# 0   1
+# ip port [cipher_key]
+# 0   1        2
 def main_shark(argv: list):
+    if(len(argv) < 2 or len(argv) > 3):
+        perr("Sytax error! Expected: \"> python photoshark.py shark {ip} {port} [{cipher_key}]\". ")
+    if(len(argv) == 3):
+        global SCREEN_CIPHER
+        SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
     ip = argv[0]
     port = int(argv[1])
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -229,6 +301,7 @@ def main_shark(argv: list):
 
             select.select([sock], [], [])
             bs = recv_msg(sock)
+            bs = deform_screen_bytes(bs)
             screen_file_name = f"screen{gi}.png"
             write2file_bytes(screen_file_name, bs)
             gi += 1
@@ -246,6 +319,8 @@ def main_shark(argv: list):
 # ip port
 # 0   1
 def main_show(argv: list):
+    if(len(argv) != 2):
+        perr("Sytax error! Expected: \"> python photoshark.py show {ip} {port}\". ")
     try:
         plog("show starting")
         ip = argv[0]
@@ -279,7 +354,7 @@ def main_show(argv: list):
 if __name__ == "__main__":
     argc = len(sys.argv)
     if(argc < 2):
-        pout("Syntax error. Expected: \"> python photoshark.py {server, photo, shark, show} ...\"")
+        perr("Syntax error. Expected: \"> python photoshark.py {server, photo, shark, show} ...\"")
     
     whoiam = sys.argv[1]
     if(whoiam == "server"):
@@ -291,4 +366,4 @@ if __name__ == "__main__":
     elif(whoiam == "show"):
         main_show(sys.argv[2:])
     else:
-        pout("Syntax error. Expected: \"> python photoshark.py {server, photo, shark, show} ...\"")
+        perr("Syntax error. Expected: \"> python photoshark.py {server, photo, shark, show} ...\"")
