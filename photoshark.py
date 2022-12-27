@@ -5,12 +5,9 @@ import os
 import io
 import datetime
 import time
-from threading import Thread
 
 import socket
 import select
-
-import pyautogui
 
 def pout(S: str, endl: bool = True):
     if(endl == False):
@@ -234,6 +231,7 @@ def main_server(argv: list):
 # ip port [cipher_key]
 # 0   1         2
 def main_photo(argv: list):
+    import pyautogui
     if(len(argv) < 2 or len(argv) > 3):
         perr("Sytax error! Expected: \"> python photoshark.py photo {ip} {port} [{cipher_key}]\". ")
     if(len(argv) == 3):
@@ -277,6 +275,7 @@ def main_photo(argv: list):
 # ip port [cipher_key]
 # 0   1        2
 def main_shark(argv: list):
+    import pyautogui
     if(len(argv) < 2 or len(argv) > 3):
         perr("Sytax error! Expected: \"> python photoshark.py shark {ip} {port} [{cipher_key}]\". ")
     if(len(argv) == 3):
