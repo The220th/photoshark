@@ -90,65 +90,121 @@ def recv_msg(conn) -> bytes:
 # port
 #  0
 def main_server(argv: list):
-    port = int(argv[0])
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("", port))
-    sock.listen(5)
+    try:
+        port = int(argv[0])
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("", port))
+        sock.listen(5)
 
-    fds = {}
-    while True:
-        readable, trash2, trash3 = select.select([sock] + list(fds.values()), [], [])
-        for fd_i in readable:
-            if(fd_i == sock):
-                conn, info = sock.accept()
-                conn.setblocking(0)
+        fds = {}
+        plog("Server started! ")
+        while True:
+            pout("")
+            readable, trash2, trash3 = select.select([sock] + list(fds.values()), [], [])
+            for fd_i in readable:
+                if(fd_i == sock):
+                    plog("main_server: new connection")
+                    conn, info = sock.accept()
+                    conn.setblocking(0)
 
-                select.select([conn], [], [], 0)
-                bs = recv_msg(conn)
-                hello_msg = bytes_to_utf8(bs)
-                if(hello_msg == "i_am_photo"):
-                    fds["photo"] = conn
-                elif(hello_msg == "i_am_shark"):
-                    fds["shark"] = conn
-                elif(hello_msg == "i_am_show"):
-                    fds["show"] = conn
-                else:
-                    perr("main_server: unknown hello message: \"hello_msg\"")
+                    select.select([conn], [], [], 0)
+                    bs = recv_msg(conn)
+                    hello_msg = bytes_to_utf8(bs)
+                    plog(f"main_server: hello message: \"{hello_msg}\". ")
+                    if(hello_msg == "i_am_photo"):
+                        fds["photo"] = conn
+                    elif(hello_msg == "i_am_shark"):
+                        fds["shark"] = conn
+                    elif(hello_msg == "i_am_show"):
+                        fds["show"] = conn
+                    else:
+                        perr("main_server: unknown hello message: \"hello_msg\"")
 
-            if("shark" in fds and fd_i == fds["shark"]):
-                bs = recv_msg(fd_i)
-                msg = bytes_to_utf8(bs)
-                if(msg == "take_photo"):
-                    send_msg(fds["photo"], utf8_to_bytes("take_photo"))
-                    
-                    select.select([fds["photo"]], [], [])
-                    image = recv_msg(fds["photo"])
-                    
-                    send_msg(fd_i, image)
+                if("shark" in fds and fd_i == fds["shark"]):
+                    plog("main_server: shark awoken. ")
+                    bs = recv_msg(fd_i)
+                    msg = bytes_to_utf8(bs)
+                    plog(f"main_server: shark says: \"{msg}\". ")
+                    if(msg == "take_photo"):
+                        if("photo" not in fds):
+                            plog(f"main_server: photo is still out... ")
+                            plog(f"main_server: sending trash to shark. ")
+                            send_msg(fd_i, utf8_to_bytes("photo is still out. Wait pls. "))
+                        else:
+                            plog(f"main_server: sending msg \"take_photo\" to photo. ")
+                            send_msg(fds["photo"], utf8_to_bytes("take_photo"))
 
+                            plog(f"main_server: getting screen from photo. ")
+                            select.select([fds["photo"]], [], [])
+                            image = recv_msg(fds["photo"])
+                            
+                            plog(f"main_server: sending screen to shark. ")
+                            send_msg(fd_i, image)
+                    elif(len(msg) > 5 and msg[:5] == "show:"):
+                        if("show" not in fds):
+                            plog(f"main_server: show is still out... ")
+                            send_msg(fd_i, utf8_to_bytes("no show yet. "))
+                        else:
+                            msg4show = msg[5:]
+                            plog(f"main_server: sending msg \"{msg4show}\" to show. ")
+                            send_msg(fds["show"], utf8_to_bytes(msg4show))
+
+                            plog(f"main_server: getting ok msg from show. ")
+                            select.select([fds["show"]], [], [])
+                            bs = recv_msg(fds["show"])
+                            msg_from_show = bytes_to_utf8(bs)
+                            plog(f"main_server: getted msg from show: \"{msg_from_show}\"")
+                            if(msg_from_show == "OK"):
+                                plog(f"main_server: send ok msg to shark. ")
+                                send_msg(fd_i, utf8_to_bytes("show got the message. "))
+                            else:
+                                plog(f"main_server: send err msg to shark. ")
+                                send_msg(fd_i, utf8_to_bytes("problem with sending a message to show. Try again. "))
+                                
+                    else:
+                        perr(f"main_server: get trash from shark")
+    except Exception as eerrrrr:
+        print(eerrrrr)
+        plog(f"Some bullshit happened. Restarting... ")
+        time.sleep(5)
+        main_server(argv)
 
 
 # ip port
 # 0   1
 def main_photo(argv: list):
-    ip = argv[0]
-    port = int(argv[1])
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((ip, port))
-    sock.setblocking(0)
-    
-    hello_msg = utf8_to_bytes("i_am_photo")
-    send_msg(sock, hello_msg)
-
-    while(True):
-        select.select([sock], [], [])
-        bs = recv_msg(sock)
-        bs_str = bytes_to_utf8(bs)
-        plog(f"main_photo: get msg from server: \"{bs_str}\". ")
-        if(bs_str == "take_photo"):
-            bs = image_to_bytes(pyautogui.screenshot())
-            send_msg(sock, bs)
-        time.sleep(1)
+    try:
+        plog("photo starting")
+        ip = argv[0]
+        port = int(argv[1])
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((ip, port))
+        sock.setblocking(0)
+        
+        hello_msg = utf8_to_bytes("i_am_photo")
+        send_msg(sock, hello_msg)
+        shit_count = 0
+        while(True):
+            select.select([sock], [], [])
+            bs = recv_msg(sock)
+            bs_str = bytes_to_utf8(bs)
+            plog(f"main_photo: get msg from server: \"{bs_str}\". ")
+            if(bs_str == ""):
+                plog(f"({shit_count}) Server down?")
+                time.sleep(3)
+                shit_count += 1
+                if(shit_count > 5):
+                    plog("Server downed. Reconnecting...")
+                    raise "bullshit happened"
+            if(bs_str == "take_photo"):
+                bs = image_to_bytes(pyautogui.screenshot())
+                send_msg(sock, bs)
+            #time.sleep(1)
+    except Exception as eerrrrr:
+        print(eerrrrr)
+        plog(f"Some bullshit happened. Restarting... ")
+        time.sleep(5)
+        main_photo(argv)
 
 
 # ip port
@@ -166,7 +222,7 @@ def main_shark(argv: list):
     pout("What do you want? \n\tPress Enter to get screen from photo \nor \n\tType message and press Enter to send this message to show. ")
     gi = 0
     while(True):
-        print("> ", end="")
+        print("> ", end = "")
         user_input = input()
         if(user_input == ""):
             send_msg(sock, utf8_to_bytes("take_photo") )
@@ -177,12 +233,48 @@ def main_shark(argv: list):
             write2file_bytes(screen_file_name, bs)
             gi += 1
             pout(f"Saved screenshot to \"{screen_file_name}\"\n")
+        else:
+            send_msg(sock, utf8_to_bytes(f"show:{user_input}") )
+
+            select.select([sock], [], [])
+            bs = recv_msg(sock)
+            msg = bytes_to_utf8(bs)
+
+            pout(f"Server said: \"{msg}\"")
 
 
-            
-
+# ip port
+# 0   1
 def main_show(argv: list):
-    pass
+    try:
+        plog("show starting")
+        ip = argv[0]
+        port = int(argv[1])
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((ip, port))
+        sock.setblocking(0)
+
+        hello_msg = utf8_to_bytes("i_am_show")
+        send_msg(sock, hello_msg)
+        shit_count = 0
+        while(True):
+            select.select([sock], [], [])
+            bs = recv_msg(sock)
+            msg = bytes_to_utf8(bs)
+            pout(f"\nGetted msg: \"{msg}\"\n")
+            if(msg == ""):
+                plog(f"({shit_count}) Server down?")
+                time.sleep(1)
+                shit_count += 1
+                if(shit_count > 5):
+                    plog("Server downed. Reconnecting...")
+                    raise "bullshit happened"
+            send_msg(sock, utf8_to_bytes("OK") )
+    except Exception as eerrrrr:
+        print(eerrrrr)
+        plog(f"Some bullshit happened. Restarting... ")
+        time.sleep(5)
+        main_show(argv)
 
 if __name__ == "__main__":
     argc = len(sys.argv)
