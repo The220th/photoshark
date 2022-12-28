@@ -9,6 +9,8 @@ import time
 import socket
 import select
 
+IF_DEBUG_MSG = True
+
 def pout(S: str, endl: bool = True):
     if(endl == False):
         print(S, end="")
@@ -16,6 +18,8 @@ def pout(S: str, endl: bool = True):
         print(S)
 
 def plog(s: str):
+    if(IF_DEBUG_MSG == False):
+        return
     time_str = datetime.datetime.now().strftime("[%y.%m.%d %H:%M:%S.%f]")
     pout(f"{time_str} {s}")
 
@@ -66,9 +70,18 @@ def pand(bs: bytes, N: int) -> bytes:
         res = bs
     return res
 
+def print_bytes(bs: bytes):
+    res = ""
+    for i in bs:
+        res += f"{i}_"
+    res = res[:-1]
+    #return res
+    print(f"\n{res}")
+
 BUFF_SIZE = 1024
 
 def send_msg(conn, bs: bytes):
+    # print_bytes(bs)
     bs_len = len(bs)
     plog(f"send_msg: Sending {bs_len} bytes... ")
     info_1 = int_to_bytes(bs_len) # кол-во байт в bs
@@ -79,10 +92,12 @@ def send_msg(conn, bs: bytes):
     plog(f"send_msg: (1)bs_len={bs_len}, (2)page_nums={page_num}, (3)bs_hash=\"{info_3}\"")
     info_msg = pand(info_1 + info_2 + info_3, BUFF_SIZE)
     plog(f"send_msg: info block formed: \"{info_msg[:12]}...\"")
+    # print_bytes(info_msg)
     buff = conn.send(info_msg)
     if(buff != BUFF_SIZE):
         perr(f"send_msg cannot send {BUFF_SIZE} bytes, only {buff}")
     for i in range(page_num):
+        # print_bytes(bs_pand[i*BUFF_SIZE:(i+1)*BUFF_SIZE])
         buff = conn.send(bs_pand[i*BUFF_SIZE:(i+1)*BUFF_SIZE])
         if(buff != BUFF_SIZE):
             perr(f"send_msg cannot send {BUFF_SIZE} bytes, only {buff}")
@@ -90,7 +105,8 @@ def send_msg(conn, bs: bytes):
 
 def recv_msg(conn) -> bytes:
     plog(f"recv_msg: recieving info block")
-    info_block = conn.recv(BUFF_SIZE)
+    info_block = conn.recv(BUFF_SIZE, socket.MSG_WAITALL)
+    # print_bytes(info_block)
     if(len(info_block) != BUFF_SIZE):
         perr(f"recv_msg: cannot get {BUFF_SIZE} bytes. Get only {len(info_block)}! ")
     plog(f"recv_msg: info block recieved: \"{info_block[:12]}...\"")
@@ -100,74 +116,19 @@ def recv_msg(conn) -> bytes:
     plog(f"recv_msg: (1)bs_len={info_1}, (2)page_nums={info_2}, (3)bs_hash=\"{info_3}\"")
     res = bytes()
     for i in range(info_2):
-        buff = conn.recv(BUFF_SIZE)
+        buff = conn.recv(BUFF_SIZE, socket.MSG_WAITALL)
+        # print_bytes(buff)
         if(len(buff) != BUFF_SIZE):
             perr(f"recv_msg: cannot get {BUFF_SIZE} bytes. Get only {len(buff)}! ")
         res += buff
     res = res[:info_1]
+    # print_bytes(res)
     res_hash = calc_bytes_hash(res)
     if(len(res_hash) != len(info_3) or False in [res_hash[i] == info_3[i] for i in range(len(res_hash))]):
         perr(f"recv_msg: hashes do not match: info_hash=\"{info_3}\" and res_hash=\"{res_hash}\"! ")
     plog("recv_msg: recieved! ")
     return res
 
-# def send_msg(conn, bs: bytes):
-#     bs_len = len(bs)
-#     plog(f"send_msg: Sending {bs_len} bytes... ")
-#     bs_len = int_to_bytes(bs_len)
-#     bs_to_send = bs_len + bs
-#     N = len(bs_to_send)
-#     if(N % BUFF_SIZE != 0):
-#         bs_to_send = bs_to_send + b'\x00'*(BUFF_SIZE - N%BUFF_SIZE)
-
-#     i = 0
-#     N = len(bs_to_send)
-#     while(i < N):
-#         conn.send( bs_to_send[i:i+BUFF_SIZE] )
-#         i += BUFF_SIZE
-#     #buff = conn.sendall(bs_to_send)
-#     #if(buff != None):
-#     #    perr(f"send_msg: cannot send {bs_len} bytes")
-
-# def recv_msg(conn) -> bytes:
-#     plog(f"recv_msg: Recieving size of msg")
-#     msg_size_b = conn.recv(BUFF_SIZE)
-#     if(len(msg_size_b) != BUFF_SIZE):
-#         perr(f"recv_msg: cannot get {BUFF_SIZE} bytes. Get only {len(msg_size_b)}! ")
-#     msg_size = bytes_to_int(msg_size_b[:4])
-#     plog(f"recv_msg: Size of msg is {msg_size} bytes")
-#     res = msg_size_b[4:]
-#     i = BUFF_SIZE
-#     while(i < msg_size):
-#         buff = conn.recv(BUFF_SIZE)
-#         if(len(buff) != BUFF_SIZE):
-#             perr(f"recv_msg: cannot get {BUFF_SIZE} bytes. Get only {len(buff)}! ")
-#         res += buff
-#         i += BUFF_SIZE
-#     res = res[:msg_size]
-#     plog(f"recv_msg: Recieved {len(res)} bytes")
-#     return res
-
-
-# def recv_msg(conn) -> bytes:
-#     plog(f"recv_msg: Recieving size of msg")
-#     msg_size_b = conn.recv(4)
-#     msg_size = bytes_to_int(msg_size_b)
-#     plog(f"recv_msg: Size of msg is {msg_size} bytes")
-#     i = 0
-#     res = bytes()
-#     #time.sleep(1)
-#     while(i < msg_size):
-#         #if(i+BUFF_SIZE < msg_size):
-#             res += conn.recv(BUFF_SIZE)
-#             i += BUFF_SIZE
-#         #else:
-#         #    to_rcv = msg_size - i
-#         #    res += conn.recv(to_rcv)
-#         #    i += to_rcv
-#     res = res[:msg_size]
-#     plog(f"recv_msg: Recieved {len(res)} ({i}) bytes")
-#     return res
 
 
 SCREEN_CIPHER = None
@@ -417,6 +378,8 @@ def main_show(argv: list):
         perr("Sytax error! Expected: \"> python photoshark.py show {ip} {port}\". ")
         exit()
     try:
+        global IF_DEBUG_MSG
+        IF_DEBUG_MSG = False
         plog("show starting")
         ip = argv[0]
         port = int(argv[1])
