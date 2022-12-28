@@ -53,35 +53,121 @@ def write2file_bytes(fileName : str, bs : bytes) -> None:
     with open(fileName, 'wb') as temp:
         temp.write(bs)
 
+def calc_bytes_hash(bs: bytes) -> "4 bytes":
+    a = hash(bs)
+    a = a % 4294967295
+    return int_to_bytes(a)
+
+def pand(bs: bytes, N: int) -> bytes:
+    n = len(bs)
+    if(n % N != 0):
+        res = bs + b'\x00'*(N - n%N)
+    else:
+        res = bs
+    return res
+
+BUFF_SIZE = 1024
+
 def send_msg(conn, bs: bytes):
     bs_len = len(bs)
     plog(f"send_msg: Sending {bs_len} bytes... ")
-    bs_len = int_to_bytes(bs_len)
-    bs_to_send = bs_len + bs
-    buff = conn.sendall(bs_to_send)
-    if(buff != None):
-        perr(f"send_msg: cannot send {bs_len} bytes")
+    info_1 = int_to_bytes(bs_len) # кол-во байт в bs
+    bs_pand = pand(bs, BUFF_SIZE)
+    page_num = len(bs_pand)//BUFF_SIZE
+    info_2 = int_to_bytes(page_num) # кол-во страниц bs_pand
+    info_3 = calc_bytes_hash(bs) # хэш bs
+    plog(f"send_msg: (1)bs_len={bs_len}, (2)page_nums={page_num}, (3)bs_hash=\"{info_3}\"")
+    info_msg = pand(info_1 + info_2 + info_3, BUFF_SIZE)
+    plog(f"send_msg: info block formed: \"{info_msg[:12]}...\"")
+    buff = conn.send(info_msg)
+    if(buff != BUFF_SIZE):
+        perr(f"send_msg cannot send {BUFF_SIZE} bytes, only {buff}")
+    for i in range(page_num):
+        buff = conn.send(bs_pand[i*BUFF_SIZE:(i+1)*BUFF_SIZE])
+        if(buff != BUFF_SIZE):
+            perr(f"send_msg cannot send {BUFF_SIZE} bytes, only {buff}")
+    plog(f"send_msg: sended! ")
 
 def recv_msg(conn) -> bytes:
-    plog(f"recv_msg: Recieving size of msg")
-    BUFF_SIZE = 1024
-    msg_size_b = conn.recv(4)
-    msg_size = bytes_to_int(msg_size_b)
-    plog(f"recv_msg: Size of msg is {msg_size} bytes")
-    i = 0
+    plog(f"recv_msg: recieving info block")
+    info_block = conn.recv(BUFF_SIZE)
+    if(len(info_block) != BUFF_SIZE):
+        perr(f"recv_msg: cannot get {BUFF_SIZE} bytes. Get only {len(info_block)}! ")
+    plog(f"recv_msg: info block recieved: \"{info_block[:12]}...\"")
+    info_1 = bytes_to_int( info_block[:4] ) # кол-во байт в bs
+    info_2 = bytes_to_int( info_block[4:8] ) # кол-во страниц bs_pand
+    info_3 = info_block[8:12] # хэш bs
+    plog(f"recv_msg: (1)bs_len={info_1}, (2)page_nums={info_2}, (3)bs_hash=\"{info_3}\"")
     res = bytes()
-    #time.sleep(1)
-    while(i < msg_size):
-        #if(i+BUFF_SIZE < msg_size):
-            res += conn.recv(BUFF_SIZE)
-            i += BUFF_SIZE
-        #else:
-        #    to_rcv = msg_size - i
-        #    res += conn.recv(to_rcv)
-        #    i += to_rcv
-    res = res[:msg_size]
-    plog(f"recv_msg: Recieved {len(res)} ({i}) bytes")
+    for i in range(info_2):
+        buff = conn.recv(BUFF_SIZE)
+        if(len(buff) != BUFF_SIZE):
+            perr(f"recv_msg: cannot get {BUFF_SIZE} bytes. Get only {len(buff)}! ")
+        res += buff
+    res = res[:info_1]
+    res_hash = calc_bytes_hash(res)
+    if(len(res_hash) != len(info_3) or False in [res_hash[i] == info_3[i] for i in range(len(res_hash))]):
+        perr(f"recv_msg: hashes do not match: info_hash=\"{info_3}\" and res_hash=\"{res_hash}\"! ")
+    plog("recv_msg: recieved! ")
     return res
+
+# def send_msg(conn, bs: bytes):
+#     bs_len = len(bs)
+#     plog(f"send_msg: Sending {bs_len} bytes... ")
+#     bs_len = int_to_bytes(bs_len)
+#     bs_to_send = bs_len + bs
+#     N = len(bs_to_send)
+#     if(N % BUFF_SIZE != 0):
+#         bs_to_send = bs_to_send + b'\x00'*(BUFF_SIZE - N%BUFF_SIZE)
+
+#     i = 0
+#     N = len(bs_to_send)
+#     while(i < N):
+#         conn.send( bs_to_send[i:i+BUFF_SIZE] )
+#         i += BUFF_SIZE
+#     #buff = conn.sendall(bs_to_send)
+#     #if(buff != None):
+#     #    perr(f"send_msg: cannot send {bs_len} bytes")
+
+# def recv_msg(conn) -> bytes:
+#     plog(f"recv_msg: Recieving size of msg")
+#     msg_size_b = conn.recv(BUFF_SIZE)
+#     if(len(msg_size_b) != BUFF_SIZE):
+#         perr(f"recv_msg: cannot get {BUFF_SIZE} bytes. Get only {len(msg_size_b)}! ")
+#     msg_size = bytes_to_int(msg_size_b[:4])
+#     plog(f"recv_msg: Size of msg is {msg_size} bytes")
+#     res = msg_size_b[4:]
+#     i = BUFF_SIZE
+#     while(i < msg_size):
+#         buff = conn.recv(BUFF_SIZE)
+#         if(len(buff) != BUFF_SIZE):
+#             perr(f"recv_msg: cannot get {BUFF_SIZE} bytes. Get only {len(buff)}! ")
+#         res += buff
+#         i += BUFF_SIZE
+#     res = res[:msg_size]
+#     plog(f"recv_msg: Recieved {len(res)} bytes")
+#     return res
+
+
+# def recv_msg(conn) -> bytes:
+#     plog(f"recv_msg: Recieving size of msg")
+#     msg_size_b = conn.recv(4)
+#     msg_size = bytes_to_int(msg_size_b)
+#     plog(f"recv_msg: Size of msg is {msg_size} bytes")
+#     i = 0
+#     res = bytes()
+#     #time.sleep(1)
+#     while(i < msg_size):
+#         #if(i+BUFF_SIZE < msg_size):
+#             res += conn.recv(BUFF_SIZE)
+#             i += BUFF_SIZE
+#         #else:
+#         #    to_rcv = msg_size - i
+#         #    res += conn.recv(to_rcv)
+#         #    i += to_rcv
+#     res = res[:msg_size]
+#     plog(f"recv_msg: Recieved {len(res)} ({i}) bytes")
+#     return res
 
 
 SCREEN_CIPHER = None
@@ -148,6 +234,7 @@ def deform_screen_bytes(bs: bytes) -> bytes:
 def main_server(argv: list):
     if(len(argv) != 1):
         perr("Sytax error! Expected: \"> python photoshark.py server {port}\". ")
+        exit()
     try:
         port = int(argv[0])
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -163,9 +250,9 @@ def main_server(argv: list):
                 if(fd_i == sock):
                     plog("main_server: new connection")
                     conn, info = sock.accept()
-                    conn.setblocking(0)
+                    #conn.setblocking(0)
 
-                    select.select([conn], [], [], 0)
+                    #select.select([conn], [], [], 0)
                     bs = recv_msg(conn)
                     hello_msg = bytes_to_utf8(bs)
                     plog(f"main_server: hello message: \"{hello_msg}\". ")
@@ -193,7 +280,7 @@ def main_server(argv: list):
                             send_msg(fds["photo"], utf8_to_bytes("take_photo"))
 
                             plog(f"main_server: getting screen from photo. ")
-                            select.select([fds["photo"]], [], [])
+                            #select.select([fds["photo"]], [], [])
                             image = recv_msg(fds["photo"])
                             
                             plog(f"main_server: sending screen to shark. ")
@@ -208,7 +295,7 @@ def main_server(argv: list):
                             send_msg(fds["show"], utf8_to_bytes(msg4show))
 
                             plog(f"main_server: getting ok msg from show. ")
-                            select.select([fds["show"]], [], [])
+                            #select.select([fds["show"]], [], [])
                             bs = recv_msg(fds["show"])
                             msg_from_show = bytes_to_utf8(bs)
                             plog(f"main_server: getted msg from show: \"{msg_from_show}\"")
@@ -226,6 +313,10 @@ def main_server(argv: list):
         plog(f"Some bullshit happened. Restarting... ")
         time.sleep(5)
         main_server(argv)
+    except KeyboardInterrupt:
+        plog("main_server: Shutdowning")
+        sock.close()
+
 
 
 # ip port [cipher_key]
@@ -234,6 +325,7 @@ def main_photo(argv: list):
     import pyautogui
     if(len(argv) < 2 or len(argv) > 3):
         perr("Sytax error! Expected: \"> python photoshark.py photo {ip} {port} [{cipher_key}]\". ")
+        exit()
     if(len(argv) == 3):
         global SCREEN_CIPHER
         SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
@@ -243,13 +335,14 @@ def main_photo(argv: list):
         port = int(argv[1])
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((ip, port))
-        sock.setblocking(0)
+        #sock.setblocking(0)
         
+        plog("main_photo: sending hello msg: \"i_am_photo\"")
         hello_msg = utf8_to_bytes("i_am_photo")
         send_msg(sock, hello_msg)
         shit_count = 0
         while(True):
-            select.select([sock], [], [])
+            #select.select([sock], [], [])
             bs = recv_msg(sock)
             bs_str = bytes_to_utf8(bs)
             plog(f"main_photo: get msg from server: \"{bs_str}\". ")
@@ -278,6 +371,7 @@ def main_shark(argv: list):
     import pyautogui
     if(len(argv) < 2 or len(argv) > 3):
         perr("Sytax error! Expected: \"> python photoshark.py shark {ip} {port} [{cipher_key}]\". ")
+        exit()
     if(len(argv) == 3):
         global SCREEN_CIPHER
         SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
@@ -285,8 +379,9 @@ def main_shark(argv: list):
     port = int(argv[1])
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((ip, port))
-    sock.setblocking(0)
+    #sock.setblocking(0)
 
+    plog("main_shark: sending hello msg: \"i_am_shark\"")
     hello_msg = utf8_to_bytes("i_am_shark")
     send_msg(sock, hello_msg)
 
@@ -298,7 +393,7 @@ def main_shark(argv: list):
         if(user_input == ""):
             send_msg(sock, utf8_to_bytes("take_photo") )
 
-            select.select([sock], [], [])
+            #select.select([sock], [], [])
             bs = recv_msg(sock)
             bs = deform_screen_bytes(bs)
             screen_file_name = f"screen{gi}.png"
@@ -308,7 +403,7 @@ def main_shark(argv: list):
         else:
             send_msg(sock, utf8_to_bytes(f"show:{user_input}") )
 
-            select.select([sock], [], [])
+            #select.select([sock], [], [])
             bs = recv_msg(sock)
             msg = bytes_to_utf8(bs)
 
@@ -320,19 +415,21 @@ def main_shark(argv: list):
 def main_show(argv: list):
     if(len(argv) != 2):
         perr("Sytax error! Expected: \"> python photoshark.py show {ip} {port}\". ")
+        exit()
     try:
         plog("show starting")
         ip = argv[0]
         port = int(argv[1])
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect((ip, port))
-        sock.setblocking(0)
+        #sock.setblocking(0)
 
+        plog("main_show: sending hello msg: \"i_am_show\"")
         hello_msg = utf8_to_bytes("i_am_show")
         send_msg(sock, hello_msg)
         shit_count = 0
         while(True):
-            select.select([sock], [], [])
+            #select.select([sock], [], [])
             bs = recv_msg(sock)
             msg = bytes_to_utf8(bs)
             pout(f"\nGetted msg: \"{msg}\"\n")
@@ -354,7 +451,7 @@ if __name__ == "__main__":
     argc = len(sys.argv)
     if(argc < 2):
         perr("Syntax error. Expected: \"> python photoshark.py {server, photo, shark, show} ...\"")
-    
+        exit()
     whoiam = sys.argv[1]
     if(whoiam == "server"):
         main_server(sys.argv[2:])
@@ -366,3 +463,4 @@ if __name__ == "__main__":
         main_show(sys.argv[2:])
     else:
         perr("Syntax error. Expected: \"> python photoshark.py {server, photo, shark, show} ...\"")
+        exit()
