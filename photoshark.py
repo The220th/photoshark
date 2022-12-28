@@ -58,7 +58,10 @@ def write2file_bytes(fileName : str, bs : bytes) -> None:
         temp.write(bs)
 
 def calc_bytes_hash(bs: bytes) -> "4 bytes":
-    a = hash(bs)
+    #a = hash(bs)
+    a = 7
+    for b_i in bs:
+        a = (31*a + b_i) % 4294967295
     a = a % 4294967295
     return int_to_bytes(a)
 
@@ -381,6 +384,7 @@ def main_show(argv: list):
         global IF_DEBUG_MSG
         IF_DEBUG_MSG = False
         plog("show starting")
+        pout("show started. Waiting messages from shark...")
         ip = argv[0]
         port = int(argv[1])
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
