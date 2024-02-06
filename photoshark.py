@@ -145,46 +145,6 @@ def recv_msg(conn) -> bytes:
 
 
 SCREEN_CIPHER = None
-#
-# class AES256CBC_Cipher(object):
-# 	# https://stackoverflow.com/questions/12524994/encrypt-decrypt-using-pycrypto-aes-256
-#
-#     def __init__(self, key):
-#         import base64
-#         import hashlib
-#         from Crypto import Random
-#         from Crypto.Cipher import AES
-#         self.bs = AES.block_size
-#         self.key = hashlib.sha256(key.encode()).digest()
-#
-#     def encrypt(self, raw: bytes) -> bytes:
-#         import base64
-#         import hashlib
-#         from Crypto import Random
-#         from Crypto.Cipher import AES
-#         raw = base64.b64encode(raw)
-#         raw = str(raw, "ascii")
-#         raw = self._pad(raw)
-#         iv = Random.new().read(AES.block_size)
-#         cipher = AES.new(self.key, AES.MODE_CBC, iv)
-#         return base64.b64encode(iv + cipher.encrypt(raw.encode()))
-#
-#     def decrypt(self, enc: bytes) -> bytes:
-#         import base64
-#         import hashlib
-#         from Crypto import Random
-#         from Crypto.Cipher import AES
-#         enc = base64.b64decode(enc)
-#         iv = enc[:AES.block_size]
-#         cipher = AES.new(self.key, AES.MODE_CBC, iv)
-#         return self._unpad(cipher.decrypt(enc[AES.block_size:]))
-#
-#     def _pad(self, s):
-#         return s + (self.bs - len(s) % self.bs) * chr(self.bs - len(s) % self.bs)
-#
-#     @staticmethod
-#     def _unpad(s):
-#         return s[:-ord(s[len(s)-1:])]
 
 class PycaFernet:
     def __init__(self, password: str):
@@ -231,9 +191,7 @@ def deform_screen_bytes(bs: bytes) -> bytes:
         return bs
     else:
         plog(f"deform_screen_bytes: decrypting screen")
-        # import base64
         res = SCREEN_CIPHER.decrypt(bs)
-        # res = base64.b64decode(res)
         return res
 
 # port
@@ -335,7 +293,6 @@ def main_photo(argv: list):
         exit()
     if(len(argv) == 3):
         global SCREEN_CIPHER
-        # SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
         SCREEN_CIPHER = PycaFernet(argv[2])
     try:
         plog("photo starting")
@@ -382,7 +339,6 @@ def main_shark(argv: list):
         exit()
     if(len(argv) == 3):
         global SCREEN_CIPHER
-        # SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
         SCREEN_CIPHER = PycaFernet(argv[2])
     ip = argv[0]
     port = int(argv[1])
