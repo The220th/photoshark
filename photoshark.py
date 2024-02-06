@@ -5,9 +5,19 @@ import os
 import io
 import datetime
 import time
+import base64
+import hashlib
 
 import socket
 import select
+
+# pip install --upgrade pip
+# pip3 install pyautogui Pillow cryptography  # for photo and shark
+#
+# python photoshark.py server {port}
+# python photoshark.py shark {ip} {port} [{cipher_key}]
+# python photoshark.py photo {ip} {port} [{cipher_key}]
+# python photoshark.py show {ip} {port}
 
 IF_DEBUG_MSG = True
 
@@ -135,46 +145,79 @@ def recv_msg(conn) -> bytes:
 
 
 SCREEN_CIPHER = None
+#
+# class AES256CBC_Cipher(object):
+# 	# https://stackoverflow.com/questions/12524994/encrypt-decrypt-using-pycrypto-aes-256
+#
+#     def __init__(self, key):
+#         import base64
+#         import hashlib
+#         from Crypto import Random
+#         from Crypto.Cipher import AES
+#         self.bs = AES.block_size
+#         self.key = hashlib.sha256(key.encode()).digest()
+#
+#     def encrypt(self, raw: bytes) -> bytes:
+#         import base64
+#         import hashlib
+#         from Crypto import Random
+#         from Crypto.Cipher import AES
+#         raw = base64.b64encode(raw)
+#         raw = str(raw, "ascii")
+#         raw = self._pad(raw)
+#         iv = Random.new().read(AES.block_size)
+#         cipher = AES.new(self.key, AES.MODE_CBC, iv)
+#         return base64.b64encode(iv + cipher.encrypt(raw.encode()))
+#
+#     def decrypt(self, enc: bytes) -> bytes:
+#         import base64
+#         import hashlib
+#         from Crypto import Random
+#         from Crypto.Cipher import AES
+#         enc = base64.b64decode(enc)
+#         iv = enc[:AES.block_size]
+#         cipher = AES.new(self.key, AES.MODE_CBC, iv)
+#         return self._unpad(cipher.decrypt(enc[AES.block_size:]))
+#
+#     def _pad(self, s):
+#         return s + (self.bs - len(s) % self.bs) * chr(self.bs - len(s) % self.bs)
+#
+#     @staticmethod
+#     def _unpad(s):
+#         return s[:-ord(s[len(s)-1:])]
 
-class AES256CBC_Cipher(object):
-	# https://stackoverflow.com/questions/12524994/encrypt-decrypt-using-pycrypto-aes-256
+class PycaFernet:
+    def __init__(self, password: str):
+        self.iv = None
+        self.key = None
+        self.cipher = None
 
-    def __init__(self, key):
-        import base64
-        import hashlib
-        from Crypto import Random
-        from Crypto.Cipher import AES
-        self.bs = AES.block_size
-        self.key = hashlib.sha256(key.encode()).digest()
+        from cryptography.fernet import Fernet
+        from cryptography.hazmat.primitives import hashes, padding
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-    def encrypt(self, raw: bytes) -> bytes:
-        import base64
-        import hashlib
-        from Crypto import Random
-        from Crypto.Cipher import AES
-        raw = base64.b64encode(raw)
-        raw = str(raw, "ascii")
-        raw = self._pad(raw)
-        iv = Random.new().read(AES.block_size)
-        cipher = AES.new(self.key, AES.MODE_CBC, iv)
-        return base64.b64encode(iv + cipher.encrypt(raw.encode()))
+        # key_len = len(Fernet.generate_key())
+        pwd = password.encode("utf-8")
+        salt = hashlib.sha256(pwd).digest()[:16]
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,  # key_len
+            salt=salt,
+            iterations=480000
+        )
+        # self.key = base64.urlsafe_b64encode(kdf.derive(pwd))
+        self.key = kdf.derive(pwd)
+        self.key = base64.urlsafe_b64encode(self.key)
 
-    def decrypt(self, enc: bytes) -> bytes:
-        import base64
-        import hashlib
-        from Crypto import Random
-        from Crypto.Cipher import AES
-        enc = base64.b64decode(enc)
-        iv = enc[:AES.block_size]
-        cipher = AES.new(self.key, AES.MODE_CBC, iv)
-        return self._unpad(cipher.decrypt(enc[AES.block_size:]))
+        print(self.key)
+        self.cipher = Fernet(self.key)
 
-    def _pad(self, s):
-        return s + (self.bs - len(s) % self.bs) * chr(self.bs - len(s) % self.bs)
+    def encrypt(self, bs: bytes) -> bytes or None:
+            return self.cipher.encrypt(bs)
 
-    @staticmethod
-    def _unpad(s):
-        return s[:-ord(s[len(s)-1:])]
+    def decrypt(self, ct: bytes) -> bytes or None:
+            return self.cipher.decrypt(ct)
 
 def form_screen_bytes(bs: bytes) -> bytes:
     if(SCREEN_CIPHER == None):
@@ -188,9 +231,9 @@ def deform_screen_bytes(bs: bytes) -> bytes:
         return bs
     else:
         plog(f"deform_screen_bytes: decrypting screen")
-        import base64
+        # import base64
         res = SCREEN_CIPHER.decrypt(bs)
-        res = base64.b64decode(res)
+        # res = base64.b64decode(res)
         return res
 
 # port
@@ -292,7 +335,8 @@ def main_photo(argv: list):
         exit()
     if(len(argv) == 3):
         global SCREEN_CIPHER
-        SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
+        # SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
+        SCREEN_CIPHER = PycaFernet(argv[2])
     try:
         plog("photo starting")
         ip = argv[0]
@@ -338,7 +382,8 @@ def main_shark(argv: list):
         exit()
     if(len(argv) == 3):
         global SCREEN_CIPHER
-        SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
+        # SCREEN_CIPHER = AES256CBC_Cipher(argv[2])
+        SCREEN_CIPHER = PycaFernet(argv[2])
     ip = argv[0]
     port = int(argv[1])
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -7,8 +7,7 @@
 ``` bash
 > pip3 install --upgrade pip
 
-> pip3 install pyautogui Pillow hashlib # for photo and shark
-> pip3 install pycrypto pycryptodome    # for photo and shark
+> pip3 install pyautogui Pillow cryptography # for photo and shark
 ```
 
 Для `server` и `show` ничего не надо дополнительно устанавливать.
