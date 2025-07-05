@@ -7,7 +7,14 @@
 ``` bash
 > pip3 install --upgrade pip
 
-> pip3 install pyautogui Pillow cryptography # for photo and shark
+> pip3 install pyautogui Pillow cryptography # only for photo and shark (for server and show no needed)
+```
+
+Также нужно установить пакет для GNU/Linux:
+``` bash
+sudo apt install gnome-screenshot
+# или
+sudo pacman -Sy gnome-screenshot
 ```
 
 Для `server` и `show` ничего не надо дополнительно устанавливать.
